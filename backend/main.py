@@ -233,10 +233,17 @@ def generate_subtitles(req: SubtitleGenerationRequest):
         except Exception:
             pass
 
-        device = "cuda" if cuda_avail else "cpu"
-        compute_type = "float16" if cuda_avail else "int8"
+        model = None
+        if cuda_avail:
+            for c_type in ["default", "float32", "int8_float16", "int8"]:
+                try:
+                    model = WhisperModel(req.whisper_model, device="cuda", compute_type=c_type)
+                    break
+                except Exception:
+                    pass
 
-        model = WhisperModel(req.whisper_model, device=device, compute_type=compute_type)
+        if model is None:
+            model = WhisperModel(req.whisper_model, device="cpu", compute_type="int8")
 
         lang_arg = req.language if req.language and req.language.strip() and req.language != "auto" else None
         segments, info = model.transcribe(str(input_file.resolve()), language=lang_arg, beam_size=5)
@@ -259,12 +266,17 @@ def generate_subtitles(req: SubtitleGenerationRequest):
             vtt_lines.append(f"{idx}\n{start_vtt} --> {end_vtt}\n{text}\n")
             txt_lines.append(f"[{start_srt}] {text}")
 
+        if not srt_lines:
+            srt_lines = ["1\n00:00:00,000 --> 00:00:05,000\n[No speech detected]\n"]
+            vtt_lines.append("1\n00:00:00.000 --> 00:00:05.000\n[No speech detected]\n")
+            txt_lines = ["[00:00:00,000] [No speech detected]"]
+
         srt_file.write_text("\n".join(srt_lines), encoding="utf-8")
         vtt_file.write_text("\n".join(vtt_lines), encoding="utf-8")
         txt_file.write_text("\n".join(txt_lines), encoding="utf-8")
 
         # Generate DaVinci Resolve FCPXML / XML Timeline
-        duration_sec = segment_list[-1].end if segment_list else 10.0
+        duration_sec = segment_list[-1].end if len(segment_list) > 0 else 10.0
         xml_content = f'''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.8">
