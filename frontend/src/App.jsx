@@ -27,7 +27,9 @@ import {
   FileText,
   MessageSquare,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Copy,
+  Check
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -75,6 +77,14 @@ export default function App() {
   // Log viewer modal
   const [showLogModal, setShowLogModal] = useState(false);
   const [logContent, setLogContent] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
+
+  const handleCopyLogs = () => {
+    if (!logContent) return;
+    navigator.clipboard.writeText(logContent);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
 
   // Audio Player State & Refs
   const vocalsAudioRef = useRef(null);
@@ -1572,13 +1582,28 @@ export default function App() {
               justifyContent: 'space-between',
               alignItems: 'center'
             }}>
-              <button 
-                onClick={handleClearLogs}
-                className="btn btn-outline-danger" 
-                style={{ fontSize: '0.85rem', padding: '0.45rem 0.85rem' }}
-              >
-                <Trash2 size={14} /> Clear Logs
-              </button>
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                <button 
+                  onClick={handleClearLogs}
+                  className="btn btn-outline-danger" 
+                  style={{ fontSize: '0.85rem', padding: '0.45rem 0.85rem' }}
+                >
+                  <Trash2 size={14} /> Clear Logs
+                </button>
+                <button 
+                  onClick={handleCopyLogs}
+                  className="btn btn-secondary" 
+                  style={{ 
+                    fontSize: '0.85rem', 
+                    padding: '0.45rem 0.85rem',
+                    color: isCopied ? 'var(--accent-emerald)' : 'inherit',
+                    borderColor: isCopied ? 'var(--accent-emerald)' : undefined
+                  }}
+                >
+                  {isCopied ? <Check size={14} color="var(--accent-emerald)" /> : <Copy size={14} />}
+                  <span>{isCopied ? 'Copied!' : 'Copy Logs'}</span>
+                </button>
+              </div>
 
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button 
