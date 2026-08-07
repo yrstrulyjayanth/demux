@@ -24,6 +24,13 @@ except Exception:
     HAS_CUDA = False
     CUDA_DEVICE_NAME = None
 
+# Check faster-whisper capability
+try:
+    from faster_whisper import WhisperModel
+    HAS_WHISPER = True
+except Exception:
+    HAS_WHISPER = False
+
 # Set Windows Proactor Event Loop Policy for subprocess compatibility
 if sys.platform == "win32":
     try:
@@ -31,7 +38,7 @@ if sys.platform == "win32":
     except Exception as e:
         print(f"Event loop policy warning: {e}")
 
-app = FastAPI(title="Demuxer AI Media Engine API", version="3.4.0")
+app = FastAPI(title="Demuxer AI Media Engine API", version="4.0.0")
 
 # Enable CORS for frontend dev server
 app.add_middleware(
@@ -104,11 +111,30 @@ class AudioConversionRequest(BaseModel):
     audio_bitrate: str = "320k"
     output_path: Optional[str] = None
 
+class SubtitleGenerationRequest(BaseModel):
+    file_path: str
+    whisper_model: str = "base"  # "tiny", "base", "small", "medium"
+    language: Optional[str] = None
+
 class FileInfoRequest(BaseModel):
     file_path: str
 
 class OpenFolderRequest(BaseModel):
     folder_path: str
+
+def format_timestamp_srt(seconds: float) -> str:
+    hrs = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int(round((seconds % 1) * 1000))
+    return f"{hrs:02d}:{mins:02d}:{secs:02d},{millis:03d}"
+
+def format_timestamp_vtt(seconds: float) -> str:
+    hrs = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int(round((seconds % 1) * 1000))
+    return f"{hrs:02d}:{mins:02d}:{secs:02d}.{millis:03d}"
 
 @app.get("/api/health")
 def check_health(response: Response):
@@ -138,6 +164,7 @@ def check_health(response: Response):
         "log_file": str(LOG_FILE_PATH),
         "ffmpeg": ffmpeg_installed,
         "demucs": demucs_installed,
+        "whisper": HAS_WHISPER,
         "cuda_available": cuda_avail,
         "gpu_device": device_name,
         "has_unread_errors": has_errors,
@@ -174,6 +201,126 @@ def get_file_info(req: FileInfoRequest):
         "extension": p.suffix.lower()
     }
 
+@app.post("/api/generate-subtitles")
+def generate_subtitles(req: SubtitleGenerationRequest):
+    """
+    Feature C: Local OpenAI Whisper Subtitle & DaVinci Resolve XML Generator.
+    Generates .srt, .vtt, .txt, and DaVinci Resolve .xml files for 100% free!
+    """
+    if not HAS_WHISPER:
+        raise HTTPException(status_code=500, detail="faster-whisper is not installed in the backend environment.")
+
+    clean_path = req.file_path.strip('"').strip("'")
+    input_file = Path(clean_path)
+
+    if not input_file.exists():
+        raise HTTPException(status_code=400, detail=f"File not found at path: {clean_path}")
+
+    output_dir = ROOT_DIR / "subtitles"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    base_name = input_file.stem
+    srt_file = output_dir / f"{base_name}.srt"
+    vtt_file = output_dir / f"{base_name}.vtt"
+    txt_file = output_dir / f"{base_name}.txt"
+    xml_file = output_dir / f"{base_name}_resolve.xml"
+
+    try:
+        cuda_avail = False
+        try:
+            import torch
+            cuda_avail = torch.cuda.is_available()
+        except Exception:
+            pass
+
+        device = "cuda" if cuda_avail else "cpu"
+        compute_type = "float16" if cuda_avail else "int8"
+
+        model = WhisperModel(req.whisper_model, device=device, compute_type=compute_type)
+
+        lang_arg = req.language if req.language and req.language.strip() and req.language != "auto" else None
+        segments, info = model.transcribe(str(input_file.resolve()), language=lang_arg, beam_size=5)
+
+        segment_list = list(segments)
+
+        # Write .srt
+        srt_lines = []
+        vtt_lines = ["WEBVTT\n"]
+        txt_lines = []
+
+        for idx, seg in enumerate(segment_list, 1):
+            start_srt = format_timestamp_srt(seg.start)
+            end_srt = format_timestamp_srt(seg.end)
+            start_vtt = format_timestamp_vtt(seg.start)
+            end_vtt = format_timestamp_vtt(seg.end)
+            text = seg.text.strip()
+
+            srt_lines.append(f"{idx}\n{start_srt} --> {end_srt}\n{text}\n")
+            vtt_lines.append(f"{idx}\n{start_vtt} --> {end_vtt}\n{text}\n")
+            txt_lines.append(f"[{start_srt}] {text}")
+
+        srt_file.write_text("\n".join(srt_lines), encoding="utf-8")
+        vtt_file.write_text("\n".join(vtt_lines), encoding="utf-8")
+        txt_file.write_text("\n".join(txt_lines), encoding="utf-8")
+
+        # Generate DaVinci Resolve FCPXML / XML Timeline
+        duration_sec = segment_list[-1].end if segment_list else 10.0
+        xml_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.8">
+    <resources>
+        <format id="r1" name="FFVideoFormat1080p30" frameDuration="100/3000s" width="1920" height="1080"/>
+        <asset id="a1" name="{input_file.name}" src="file:///{input_file.resolve().as_posix()}" duration="{int(duration_sec*30)}/30s" hasVideo="1" hasAudio="1"/>
+    </resources>
+    <library>
+        <event name="{base_name}">
+            <project name="{base_name}_Resolve_Timeline">
+                <sequence duration="{int(duration_sec*30)}/30s" format="r1">
+                    <spine>
+                        <asset-clip ref="a1" offset="0s" duration="{int(duration_sec*30)}/30s" name="{input_file.name}"/>
+                    </spine>
+                </sequence>
+            </project>
+        </event>
+    </library>
+</fcpxml>
+'''
+        xml_file.write_text(xml_content, encoding="utf-8")
+
+        rel_srt = srt_file.relative_to(ROOT_DIR) if srt_file.is_relative_to(ROOT_DIR) else None
+        rel_vtt = vtt_file.relative_to(ROOT_DIR) if vtt_file.is_relative_to(ROOT_DIR) else None
+        rel_txt = txt_file.relative_to(ROOT_DIR) if txt_file.is_relative_to(ROOT_DIR) else None
+        rel_xml = xml_file.relative_to(ROOT_DIR) if xml_file.is_relative_to(ROOT_DIR) else None
+
+        return {
+            "status": "success",
+            "message": f"Subtitles & Resolve XML generated successfully using Whisper ({info.language.upper()})!",
+            "detected_language": info.language,
+            "output_directory": str(output_dir.resolve()),
+            "srt_path": str(srt_file.resolve()),
+            "srt_url": f"/media/{rel_srt.as_posix()}" if rel_srt else None,
+            "vtt_path": str(vtt_file.resolve()),
+            "vtt_url": f"/media/{rel_vtt.as_posix()}" if rel_vtt else None,
+            "txt_path": str(txt_file.resolve()),
+            "txt_url": f"/media/{rel_txt.as_posix()}" if rel_txt else None,
+            "xml_path": str(xml_file.resolve()),
+            "xml_url": f"/media/{rel_xml.as_posix()}" if rel_xml else None,
+            "transcript_summary": "\n".join(txt_lines[:10]) + ("\n..." if len(txt_lines) > 10 else "")
+        }
+
+    except Exception as e:
+        log_process_error(
+            command=f"Whisper Transcribe ({req.whisper_model})",
+            returncode=-1,
+            stdout="",
+            stderr=str(e),
+            context_info="Feature C: Whisper Subtitles (Python Exception)"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Subtitle generation failed. Check stash_error_log.txt for details."
+        )
+
 @app.post("/api/separate-audio")
 async def separate_audio_stream(req: AudioSeparationRequest):
     """
@@ -192,14 +339,10 @@ async def separate_audio_stream(req: AudioSeparationRequest):
     
     out_base_dir.mkdir(parents=True, exist_ok=True)
 
-    # Force CUDA device 0 (NVIDIA GeForce GTX 1650) if PyTorch GPU is available
     cuda_avail = False
-    device_name = ""
     try:
         import torch
         cuda_avail = torch.cuda.is_available()
-        if cuda_avail:
-            device_name = torch.cuda.get_device_name(0)
     except Exception:
         pass
 
@@ -279,12 +422,6 @@ async def separate_audio_stream(req: AudioSeparationRequest):
                     yield f"data: {json.dumps(item)}\n\n"
                 elif item['type'] == 'done':
                     done_item = item
-
-        # Check if process was killed by user
-        if done_item['returncode'] == 15 or done_item['returncode'] == -9 or done_item['returncode'] == 1:
-            if "terminated by user" in done_item['stderr'] or done_item['returncode'] != 0:
-                # Log process kill
-                pass
 
         if done_item['returncode'] != 0:
             log_process_error(

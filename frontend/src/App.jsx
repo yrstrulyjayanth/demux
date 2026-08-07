@@ -23,7 +23,11 @@ import {
   Disc,
   ArrowRight,
   Trash2,
-  Square
+  Square,
+  FileText,
+  MessageSquare,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -48,7 +52,12 @@ export default function App() {
   // Audio Converter Options
   const [targetAudioFormat, setTargetAudioFormat] = useState('wav'); // mp3, wav, flac, aac, ogg, m4a, alac, aiff
 
+  // Whisper Subtitles Options
+  const [whisperModel, setWhisperModel] = useState('base'); // tiny, base, small
+  const [subtitleLanguage, setSubtitleLanguage] = useState('auto');
+
   // App & Processing state
+  const [serverHealth, setServerHealth] = useState({ online: false, ffmpeg: false, demucs: false, whisper: false, cuda: false, gpuDevice: '' });
   const [hasUnreadError, setHasUnreadError] = useState(false);
   
   // Real-Time SSE Progress state
@@ -100,8 +109,6 @@ export default function App() {
     }
   };
 
-  const [serverHealth, setServerHealth] = useState({ online: false, ffmpeg: false, demucs: false, cuda: false, gpuDevice: '' });
-
   // Check health & error status periodically
   const checkHealth = async () => {
     try {
@@ -112,15 +119,16 @@ export default function App() {
           online: true, 
           ffmpeg: data.ffmpeg, 
           demucs: data.demucs,
+          whisper: data.whisper,
           cuda: data.cuda_available,
           gpuDevice: data.gpu_device
         });
         if (data.has_unread_errors) setHasUnreadError(true);
       } else {
-        setServerHealth({ online: false, ffmpeg: false, demucs: false, cuda: false, gpuDevice: '' });
+        setServerHealth({ online: false, ffmpeg: false, demucs: false, whisper: false, cuda: false, gpuDevice: '' });
       }
     } catch {
-      setServerHealth({ online: false, ffmpeg: false, demucs: false, cuda: false, gpuDevice: '' });
+      setServerHealth({ online: false, ffmpeg: false, demucs: false, whisper: false, cuda: false, gpuDevice: '' });
     }
   };
 
@@ -388,6 +396,80 @@ export default function App() {
     }
   };
 
+  // WHISPER SUBTITLES & DAVINCI RESOLVE XML GENERATOR
+  const handleGenerateSubtitles = async () => {
+    if (!filePath.trim()) return;
+    setIsProcessing(true);
+    setProgressPercent(15);
+    setActiveTask(`Transcribing Speech with Whisper AI (${whisperModel})...`);
+    setLiveLogText('Running local Whisper AI model on GPU...');
+    setErrorMessage('');
+    setResultData(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/generate-subtitles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          file_path: filePath.trim(),
+          whisper_model: whisperModel,
+          language: subtitleLanguage
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setHasUnreadError(true);
+        setErrorMessage(data.detail || 'Subtitle generation failed. Check stash_error_log.txt for details.');
+      } else {
+        setProgressPercent(100);
+        const resObj = {
+          type: 'subtitles',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          message: data.message,
+          outputDir: data.output_directory,
+          srtPath: data.srt_path,
+          srtUrl: data.srt_url ? `${API_BASE}${data.srt_url}` : null,
+          vttPath: data.vtt_path,
+          vttUrl: data.vtt_url ? `${API_BASE}${data.vtt_url}` : null,
+          txtPath: data.txt_path,
+          txtUrl: data.txt_url ? `${API_BASE}${data.txt_url}` : null,
+          xmlPath: data.xml_path,
+          xmlUrl: data.xml_url ? `${API_BASE}${data.xml_url}` : null,
+          transcriptSummary: data.transcript_summary,
+          detectedLanguage: data.detected_language
+        };
+        setResultData(resObj);
+        saveToHistory(resObj);
+      }
+    } catch (err) {
+      setHasUnreadError(true);
+      setErrorMessage('Subtitle generation failed. Check stash_error_log.txt for details.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    try {
+      await fetch(`${API_BASE}/api/logs`, { method: 'DELETE' });
+      setLogContent('# DEMUXER STASH ERROR LOG\n# Log file cleared.');
+      setHasUnreadError(false);
+    } catch (err) {
+      console.error('Error clearing logs:', err);
+    }
+  };
+
+  const handleStopProcess = async () => {
+    try {
+      await fetch(`${API_BASE}/api/stop-process`, { method: 'POST' });
+      setIsProcessing(false);
+      setLiveLogText('Process terminated by user.');
+    } catch (err) {
+      console.error('Error stopping process:', err);
+    }
+  };
+
   // Audio Playback Transport
   const togglePlayAudio = () => {
     if (!vocalsAudioRef.current && !bgAudioRef.current) return;
@@ -431,26 +513,6 @@ export default function App() {
     } catch (err) {
       setLogContent('Failed to load stash_error_log.txt');
       setShowLogModal(true);
-    }
-  };
-
-  const handleClearLogs = async () => {
-    try {
-      await fetch(`${API_BASE}/api/logs`, { method: 'DELETE' });
-      setLogContent('# DEMUXER STASH ERROR LOG\n# Log file cleared.');
-      setHasUnreadError(false);
-    } catch (err) {
-      console.error('Error clearing logs:', err);
-    }
-  };
-
-  const handleStopProcess = async () => {
-    try {
-      await fetch(`${API_BASE}/api/stop-process`, { method: 'POST' });
-      setIsProcessing(false);
-      setLiveLogText('Process terminated by user.');
-    } catch (err) {
-      console.error('Error stopping process:', err);
     }
   };
 
@@ -505,15 +567,15 @@ export default function App() {
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent'
             }}>
-              DEMUXER <span style={{ fontSize: '0.9rem', color: 'var(--accent-purple)', fontWeight: 700 }}>PRO v3</span>
+              DEMUXER <span style={{ fontSize: '0.9rem', color: 'var(--accent-purple)', fontWeight: 700 }}>PRO v4</span>
             </h1>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              AI Stem Isolation • Format Converter • DaVinci Resolve Suite
+              AI Stem Isolation • Whisper Subtitles • DaVinci Resolve Suite
             </p>
           </div>
         </div>
 
-        {/* Status & Stash Logs Button with Unread Error Notification Badge */}
+        {/* Status & Stash Logs Button */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div className="glass-card" style={{ padding: '0.45rem 0.9rem', borderRadius: '30px', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem' }}>
             <span style={{ 
@@ -547,7 +609,6 @@ export default function App() {
               <span>Stash Logs</span>
             </button>
 
-            {/* Glowing Red Notification Circle on Error */}
             {hasUnreadError && (
               <span style={{
                 position: 'absolute',
@@ -632,7 +693,7 @@ export default function App() {
             type="text" 
             className="glass-input" 
             style={{ fontSize: '0.82rem', padding: '0.5rem 0.85rem' }}
-            placeholder="Default: \separated, \converted, and \converted_audio"
+            placeholder="Default: \separated, \subtitles, \converted, and \converted_audio"
             value={customOutputDir}
             onChange={(e) => setCustomOutputDir(e.target.value)}
           />
@@ -650,7 +711,7 @@ export default function App() {
       {/* FEATURE CARDS GRID */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
         
-        {/* FEATURE A: DEMUCS AI STEM SEPARATION (WITH MODEL & SHIFTS QUALITY BOOSTER) */}
+        {/* FEATURE A: DEMUCS AI STEM SEPARATION */}
         <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
@@ -678,10 +739,7 @@ export default function App() {
               Extract pristine **Vocals** and **Background Instrumental** with zero artifacts.
             </p>
 
-            {/* CUSTOMIZATION CONTROLS */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem' }}>
-              
-              {/* Demucs Pretrained Model Dropdown */}
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
                   AI Neural Model:
@@ -699,7 +757,6 @@ export default function App() {
                 </select>
               </div>
 
-              {/* Stem Target & Quality Shifts */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
@@ -728,14 +785,13 @@ export default function App() {
                     value={shiftsQuality}
                     onChange={(e) => setShiftsQuality(Number(e.target.value))}
                   >
-                    <option value={2}>2 Shifts (Clean Background - Recommended)</option>
+                    <option value={2}>2 Shifts (Clean Background)</option>
                     <option value={1}>1 Shift (Fastest)</option>
-                    <option value={4}>4 Shifts (Ultra Clean Isolation)</option>
+                    <option value={4}>4 Shifts (Ultra Clean)</option>
                   </select>
                 </div>
               </div>
 
-              {/* Format Dropdowns */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
@@ -786,7 +842,87 @@ export default function App() {
           </button>
         </div>
 
-        {/* FEATURE B: UNIVERSAL AUDIO CONVERTER (NEW!) */}
+        {/* FEATURE B: LOCAL WHISPER SUBTITLES & RESOLVE XML (NEW!) */}
+        <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
+              <div style={{ 
+                width: '44px', 
+                height: '44px', 
+                borderRadius: '12px', 
+                background: 'rgba(245, 158, 11, 0.15)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center'
+              }}>
+                <FileText size={24} color="var(--accent-amber)" />
+              </div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-amber)', background: 'rgba(245, 158, 11, 0.2)', padding: '0.25rem 0.6rem', borderRadius: '12px' }}>
+                WHISPER AI • 100% FREE
+              </span>
+            </div>
+
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+              Whisper Subtitles & XML
+            </h3>
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: '1.5', marginBottom: '1.25rem' }}>
+              Generate **`.SRT`**, **`.VTT`**, **`.TXT`**, and **DaVinci Resolve `.XML`** timeline files locally on GPU.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
+                    Whisper AI Model:
+                  </label>
+                  <select 
+                    className="glass-input"
+                    style={{ cursor: 'pointer' }}
+                    value={whisperModel}
+                    onChange={(e) => setWhisperModel(e.target.value)}
+                  >
+                    <option value="base">Whisper Base (Fast & Accurate)</option>
+                    <option value="small">Whisper Small (High Precision)</option>
+                    <option value="tiny">Whisper Tiny (Ultra-Fast)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
+                    Language:
+                  </label>
+                  <select 
+                    className="glass-input"
+                    style={{ cursor: 'pointer' }}
+                    value={subtitleLanguage}
+                    onChange={(e) => setSubtitleLanguage(e.target.value)}
+                  >
+                    <option value="auto">Auto-Detect</option>
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="hi">Hindi</option>
+                    <option value="ja">Japanese</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button 
+            className="btn btn-secondary" 
+            style={{ width: '100%', background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: 'white', border: 'none' }}
+            disabled={!filePath.trim() || isProcessing || (fileMetadata && !fileMetadata.exists)}
+            onClick={handleGenerateSubtitles}
+          >
+            <FileText size={18} />
+            <span>Generate Subtitles & Resolve XML</span>
+          </button>
+        </div>
+
+        {/* FEATURE C: UNIVERSAL AUDIO CONVERTER */}
         <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
@@ -846,7 +982,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* FEATURE C: DAVINCI RESOLVE CONVERTER */}
+        {/* FEATURE D: DAVINCI RESOLVE CONVERTER */}
         <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
@@ -980,7 +1116,7 @@ export default function App() {
             position: 'relative'
           }}>
             <div style={{
-              width: `${Math.max(3, progressPercent)}%`,
+              width: `${Math.max(5, progressPercent)}%`,
               height: '100%',
               background: 'linear-gradient(90deg, #8b5cf6 0%, #06b6d4 100%)',
               borderRadius: '10px',
@@ -1036,6 +1172,83 @@ export default function App() {
               <X size={18} />
             </button>
           </div>
+        </section>
+      )}
+
+      {/* SUBTITLES RESULT CARD */}
+      {resultData && resultData.type === 'subtitles' && (
+        <section className="glass-card" style={{ 
+          padding: '1.75rem', 
+          marginBottom: '2rem',
+          background: 'rgba(245, 158, 11, 0.08)',
+          border: '1px solid rgba(245, 158, 11, 0.3)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <CheckCircle2 size={24} color="var(--accent-amber)" />
+              <div>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--accent-amber)' }}>
+                  Whisper Subtitles & Resolve XML Generated!
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Language: <strong style={{ color: 'var(--text-main)' }}>{resultData.detectedLanguage?.toUpperCase()}</strong> • 100% Free & Local
+                </p>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => openFolder(resultData.outputDir)}
+              className="btn btn-secondary"
+              style={{ fontSize: '0.85rem' }}
+            >
+              <FolderOpen size={16} />
+              <span>Open Output Folder</span>
+            </button>
+          </div>
+
+          {/* Action Download Buttons Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {resultData.srtPath && (
+              <button onClick={() => openFolder(resultData.srtPath)} className="btn btn-secondary" style={{ fontSize: '0.8rem', justifyContent: 'flex-start' }}>
+                <FileText size={16} color="var(--accent-amber)" />
+                <span>Open .SRT Subtitles</span>
+              </button>
+            )}
+            {resultData.vttPath && (
+              <button onClick={() => openFolder(resultData.vttPath)} className="btn btn-secondary" style={{ fontSize: '0.8rem', justifyContent: 'flex-start' }}>
+                <MessageSquare size={16} color="var(--accent-cyan)" />
+                <span>Open .VTT Web Subtitles</span>
+              </button>
+            )}
+            {resultData.xmlPath && (
+              <button onClick={() => openFolder(resultData.xmlPath)} className="btn btn-secondary" style={{ fontSize: '0.8rem', justifyContent: 'flex-start' }}>
+                <FileSpreadsheet size={16} color="var(--accent-purple)" />
+                <span>Open Resolve .XML Timeline</span>
+              </button>
+            )}
+          </div>
+
+          {/* Live Transcript Preview Box */}
+          {resultData.transcriptSummary && (
+            <div style={{ 
+              background: 'rgba(0,0,0,0.4)', 
+              padding: '1rem', 
+              borderRadius: '10px', 
+              fontSize: '0.85rem',
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--text-main)',
+              maxHeight: '160px',
+              overflowY: 'auto',
+              border: '1px solid rgba(255,255,255,0.06)'
+            }}>
+              <p style={{ fontSize: '0.75rem', color: 'var(--accent-amber)', marginBottom: '0.4rem', fontWeight: 600 }}>
+                TRANSCRIPT PREVIEW:
+              </p>
+              <pre style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
+                {resultData.transcriptSummary}
+              </pre>
+            </div>
+          )}
         </section>
       )}
 
@@ -1207,7 +1420,7 @@ export default function App() {
       )}
 
       {/* OTHER RESULT CARD */}
-      {resultData && resultData.type !== 'audio' && (
+      {resultData && resultData.type !== 'audio' && resultData.type !== 'subtitles' && (
         <section className="glass-card" style={{ 
           padding: '1.75rem', 
           marginBottom: '2rem',
@@ -1275,9 +1488,9 @@ export default function App() {
                 fontSize: '0.82rem'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  {item.type === 'audio' ? <Music size={16} color="var(--accent-purple)" /> : item.type === 'audio_conversion' ? <Disc size={16} color="var(--accent-emerald)" /> : <Film size={16} color="var(--accent-cyan)" />}
+                  {item.type === 'audio' ? <Music size={16} color="var(--accent-purple)" /> : item.type === 'subtitles' ? <FileText size={16} color="var(--accent-amber)" /> : item.type === 'audio_conversion' ? <Disc size={16} color="var(--accent-emerald)" /> : <Film size={16} color="var(--accent-cyan)" />}
                   <span style={{ fontWeight: 600 }}>
-                    {item.type === 'audio' ? `Stems (${item.modelUsed || 'Demucs'})` : item.type === 'audio_conversion' ? 'Audio Conversion' : 'Resolve Video'}
+                    {item.type === 'audio' ? `Stems (${item.modelUsed || 'Demucs'})` : item.type === 'subtitles' ? 'Whisper Subtitles' : item.type === 'audio_conversion' ? 'Audio Conversion' : 'Resolve Video'}
                   </span>
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({item.timestamp})</span>
                 </div>
