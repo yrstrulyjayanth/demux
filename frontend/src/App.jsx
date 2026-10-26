@@ -1,36 +1,29 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Waves, 
   Film, 
   Music, 
-  FolderOpen, 
-  FileCheck, 
   AlertCircle, 
   Terminal, 
-  Cpu, 
   Zap, 
-  RefreshCw, 
   CheckCircle2, 
-  X,
-  FileSearch,
   Sparkles,
-  Play,
-  Pause,
-  Volume2,
   Sliders,
   History,
   ShieldCheck,
   Disc,
   ArrowRight,
-  Trash2,
-  Square,
   FileText,
-  MessageSquare,
-  Download,
-  FileSpreadsheet,
-  Copy,
-  Check
+  Sparkle
 } from 'lucide-react';
+
+import { useSSE } from './hooks/useSSE';
+import FilePicker from './components/FilePicker';
+import ProgressBar from './components/ProgressBar';
+import ResultCard from './components/ResultCard';
+import StemMixer from './components/StemMixer';
+import LogModal from './components/LogModal';
+import HistoryList from './components/HistoryList';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -40,66 +33,57 @@ export default function App() {
   const [fileMetadata, setFileMetadata] = useState(null);
 
   // Audio Separation Options
-  const [modelName, setModelName] = useState('htdemucs_ft'); // htdemucs_ft (Best), htdemucs, htdemucs_6s, mdx_extra
-  const [stemMode, setStemMode] = useState('vocals'); // vocals, drums, bass, all_4_stems
-  const [audioFormat, setAudioFormat] = useState('mp3'); // mp3, wav, flac
+  const [modelName, setModelName] = useState('htdemucs_ft');
+  const [stemMode, setStemMode] = useState('vocals');
+  const [audioFormat, setAudioFormat] = useState('mp3');
   const [mp3Bitrate, setMp3Bitrate] = useState(320);
-  const [shiftsQuality, setShiftsQuality] = useState(2); // 2 shifts for cleaner background separation
+  const [shiftsQuality, setShiftsQuality] = useState(2);
 
   // Video Conversion Options
-  const [videoContainer, setVideoContainer] = useState('mp4'); // mp4, mov, mkv
+  const [videoContainer, setVideoContainer] = useState('mp4');
+  const [videoMode, setVideoMode] = useState('transcode');
   const [cqQuality, setCqQuality] = useState(18);
-  const [videoAudioCodec, setVideoAudioCodec] = useState('aac'); // aac, pcm
+  const [videoAudioCodec, setVideoAudioCodec] = useState('aac');
 
   // Audio Converter Options
-  const [targetAudioFormat, setTargetAudioFormat] = useState('wav'); // mp3, wav, flac, aac, ogg, m4a, alac, aiff
+  const [targetAudioFormat, setTargetAudioFormat] = useState('wav');
 
   // Whisper Subtitles Options
-  const [whisperModel, setWhisperModel] = useState('base'); // tiny, base, small
+  const [whisperModel, setWhisperModel] = useState('large-v3');
   const [subtitleLanguage, setSubtitleLanguage] = useState('auto');
+  const [resolveTextType, setResolveTextType] = useState('text_plus');
+  const [genSrt, setGenSrt] = useState(true);
+  const [genVtt, setGenVtt] = useState(true);
+  const [genTxt, setGenTxt] = useState(true);
+  const [genResolveSubXml, setGenResolveSubXml] = useState(false);
+  const [genResolveTimelineXml, setGenResolveTimelineXml] = useState(false);
+  const [demucsVocalClean, setDemucsVocalClean] = useState(true);
 
-  // App & Processing state
+  // Health & System state
   const [serverHealth, setServerHealth] = useState({ online: false, ffmpeg: false, demucs: false, whisper: false, cuda: false, gpuDevice: '' });
   const [hasUnreadError, setHasUnreadError] = useState(false);
   
-  // Real-Time SSE Progress state
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [activeTask, setActiveTask] = useState('');
-  const [progressPercent, setProgressPercent] = useState(0);
-  const [liveLogText, setLiveLogText] = useState('');
-  const [elapsedTime, setElapsedTime] = useState(0);
-
-  // Results & Alerts
+  // Results & History
   const [resultData, setResultData] = useState(null);
-  const [errorMessage, setErrorMessage] = useState('');
   const [jobHistory, setJobHistory] = useState([]);
 
-  // Log viewer modal
+  // Log Modal
   const [showLogModal, setShowLogModal] = useState(false);
   const [logContent, setLogContent] = useState('');
-  const [isCopied, setIsCopied] = useState(false);
 
-  const handleCopyLogs = () => {
-    if (!logContent) return;
-    navigator.clipboard.writeText(logContent);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  };
+  // SSE Hook
+  const {
+    isProcessing,
+    progressPercent,
+    activeTask,
+    liveLogText,
+    errorMessage,
+    startStream,
+    stopStream,
+    setErrorMessage
+  } = useSSE(API_BASE);
 
-  // Audio Player State & Refs
-  const vocalsAudioRef = useRef(null);
-  const bgAudioRef = useRef(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-
-  const [vocalsVolume, setVocalsVolume] = useState(1.0);
-  const [bgVolume, setBgVolume] = useState(1.0);
-  const [vocalsMuted, setVocalsMuted] = useState(false);
-  const [bgMuted, setBgMuted] = useState(false);
-  const [soloTrack, setSoloTrack] = useState(null);
-
-  // Load History from localStorage
+  // Load History
   useEffect(() => {
     try {
       const saved = localStorage.getItem('demuxer_history');
@@ -110,16 +94,21 @@ export default function App() {
   }, []);
 
   const saveToHistory = (item) => {
-    const updated = [item, ...jobHistory.slice(0, 9)];
-    setJobHistory(updated);
-    try {
-      localStorage.setItem('demuxer_history', JSON.stringify(updated));
-    } catch (e) {
-      console.error('History save error:', e);
-    }
+    setJobHistory(prev => {
+      const updated = [item, ...prev.slice(0, 9)];
+      try {
+        localStorage.setItem('demuxer_history', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
   };
 
-  // Check health & error status periodically
+  const handleClearHistory = () => {
+    setJobHistory([]);
+    try { localStorage.removeItem('demuxer_history'); } catch (e) {}
+  };
+
+  // Health Check
   const checkHealth = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/health`);
@@ -148,42 +137,27 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Stopwatch timer for active processing
-  useEffect(() => {
-    let timer;
-    if (isProcessing) {
-      setElapsedTime(0);
-      timer = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
-    }
-    return () => clearInterval(timer);
-  }, [isProcessing]);
-
-  // Inspect file path metadata on change
+  // Inspect File Metadata
   useEffect(() => {
     if (!filePath.trim()) {
       setFileMetadata(null);
       return;
     }
-    const timer = setTimeout(() => fetchFileInfo(filePath.trim()), 400);
+    const timer = setTimeout(() => {
+      fetch(`${API_BASE}/api/file-info`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_path: filePath.trim() })
+      })
+        .then(res => res.ok ? res.json() : { exists: false })
+        .then(data => setFileMetadata(data))
+        .catch(() => setFileMetadata({ exists: false }));
+    }, 400);
+
     return () => clearTimeout(timer);
   }, [filePath]);
 
-  const fetchFileInfo = async (pathStr) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/file-info`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_path: pathStr })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFileMetadata(data);
-      }
-    } catch {
-      setFileMetadata({ exists: false });
-    }
-  };
-
+  // Browse File / Folder Handlers
   const handleBrowseFile = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/pick-file`);
@@ -208,231 +182,153 @@ export default function App() {
     }
   };
 
-  // STREAMED AUDIO SEPARATION WITH REAL-TIME SSE PROGRESS
-  const handleSeparateAudio = async () => {
-    if (!filePath.trim()) return;
-    setIsProcessing(true);
-    setProgressPercent(2);
-    setActiveTask(`Separating Stems with ${modelName} (Quality Boost)...`);
-    setLiveLogText('Initializing Demucs neural separation engine...');
-    setErrorMessage('');
-    setResultData(null);
-    setIsPlaying(false);
-
+  // Open Log Modal
+  const handleOpenLogModal = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/separate-audio`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          file_path: filePath.trim(),
-          model_name: modelName,
-          stem_mode: stemMode,
-          output_format: audioFormat,
-          mp3_bitrate: mp3Bitrate,
-          shifts: shiftsQuality,
-          custom_output_dir: customOutputDir.trim() || undefined
-        })
-      });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop();
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const eventData = JSON.parse(line.replace('data: ', ''));
-              if (eventData.type === 'progress') {
-                if (eventData.percent !== undefined) setProgressPercent(eventData.percent);
-                if (eventData.text) setLiveLogText(eventData.text);
-              } else if (eventData.type === 'complete') {
-                setProgressPercent(100);
-                const data = eventData.result;
-                const resObj = {
-                  type: 'audio',
-                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                  message: data.message,
-                  outputDir: data.output_directory,
-                  modelUsed: data.model_used,
-                  format: data.format,
-                  primaryStemPath: data.primary_stem_path,
-                  primaryStemUrl: data.primary_stem_url ? `${API_BASE}${data.primary_stem_url}` : null,
-                  bgStemPath: data.background_stem_path,
-                  bgStemUrl: data.background_stem_url ? `${API_BASE}${data.background_stem_url}` : null,
-                  command: data.command_executed
-                };
-                setResultData(resObj);
-                saveToHistory(resObj);
-              } else if (eventData.type === 'error') {
-                setHasUnreadError(true);
-                setErrorMessage(eventData.message || 'Processing Failed. Check stash_error_log.txt for details.');
-              }
-            } catch (e) {
-              console.log('SSE parse error:', e);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      setHasUnreadError(true);
-      setErrorMessage('Processing Failed. Check stash_error_log.txt for details.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // STREAMED VIDEO CONVERSION WITH REAL-TIME SSE PROGRESS
-  const handleConvertVideo = async () => {
-    if (!filePath.trim()) return;
-    setIsProcessing(true);
-    setProgressPercent(5);
-    setActiveTask(`Converting Video for Resolve (.${videoContainer.toUpperCase()})...`);
-    setLiveLogText('Starting FFmpeg GPU/CPU encoding pipeline...');
-    setErrorMessage('');
-    setResultData(null);
-
-    try {
-      const response = await fetch(`${API_BASE}/api/convert-video`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          file_path: filePath.trim(),
-          container: videoContainer,
-          cq_quality: cqQuality,
-          audio_codec: videoAudioCodec
-        })
-      });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop();
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const eventData = JSON.parse(line.replace('data: ', ''));
-              if (eventData.type === 'progress') {
-                if (eventData.percent !== undefined) setProgressPercent(eventData.percent);
-                if (eventData.text) setLiveLogText(eventData.text);
-              } else if (eventData.type === 'complete') {
-                setProgressPercent(100);
-                const data = eventData.result;
-                const resObj = {
-                  type: 'video',
-                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                  message: data.message,
-                  mode: data.mode,
-                  outputFile: data.output_file,
-                  videoUrl: data.web_url ? `${API_BASE}${data.web_url}` : null,
-                  command: data.command_executed
-                };
-                setResultData(resObj);
-                saveToHistory(resObj);
-              } else if (eventData.type === 'error') {
-                setHasUnreadError(true);
-                setErrorMessage(eventData.message || 'Processing Failed. Check stash_error_log.txt for details.');
-              }
-            } catch (e) {
-              console.log('SSE parse error:', e);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      setHasUnreadError(true);
-      setErrorMessage('Processing Failed. Check stash_error_log.txt for details.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // AUDIO FORMAT CONVERTER
-  const handleConvertAudioFormat = async () => {
-    if (!filePath.trim()) return;
-    setIsProcessing(true);
-    setProgressPercent(30);
-    setActiveTask(`Converting Audio Format to .${targetAudioFormat.toUpperCase()}...`);
-    setErrorMessage('');
-    setResultData(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/convert-audio`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          file_path: filePath.trim(),
-          target_format: targetAudioFormat,
-          audio_bitrate: '320k'
-        })
-      });
-
+      const res = await fetch(`${API_BASE}/api/logs`);
       const data = await res.json();
-      if (!res.ok) {
-        setHasUnreadError(true);
-        setErrorMessage(data.detail || 'Processing Failed. Check stash_error_log.txt for details.');
-      } else {
-        setProgressPercent(100);
+      setLogContent(data.content || 'No log entries recorded.');
+      setShowLogModal(true);
+    } catch (err) {
+      setLogContent(`Failed to fetch logs: ${err.message}`);
+      setShowLogModal(true);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    try {
+      await fetch(`${API_BASE}/api/logs`, { method: 'DELETE' });
+      setLogContent('# DEMUXER STASH ERROR LOG\n# Clear.');
+      setHasUnreadError(false);
+    } catch (err) {
+      console.error('Clear log error:', err);
+    }
+  };
+
+  const handleOpenFolder = async (folderPath) => {
+    try {
+      await fetch(`${API_BASE}/api/open-folder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_path: folderPath })
+      });
+    } catch (err) {
+      console.error('Open folder error:', err);
+    }
+  };
+
+  // Feature Handlers
+  const handleSeparateAudio = () => {
+    if (!filePath.trim()) return;
+    setResultData(null);
+    startStream(
+      '/api/separate-audio',
+      {
+        file_path: filePath.trim(),
+        model_name: modelName,
+        stem_mode: stemMode,
+        output_format: audioFormat,
+        mp3_bitrate: mp3Bitrate,
+        shifts: shiftsQuality,
+        custom_output_dir: customOutputDir.trim() || undefined
+      },
+      `Separating Stems with ${modelName}...`,
+      (data) => {
         const resObj = {
-          type: 'audio_conversion',
+          type: 'audio',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           message: data.message,
-          outputFile: data.output_file,
+          outputDir: data.output_directory,
+          modelUsed: data.model_used,
+          format: data.format,
+          primaryStemPath: data.primary_stem_path,
+          primaryStemUrl: data.primary_stem_url ? `${API_BASE}${data.primary_stem_url}` : null,
+          bgStemPath: data.background_stem_path,
+          bgStemUrl: data.background_stem_url ? `${API_BASE}${data.background_stem_url}` : null,
           command: data.command_executed
         };
         setResultData(resObj);
         saveToHistory(resObj);
       }
-    } catch (err) {
-      setHasUnreadError(true);
-      setErrorMessage('Processing Failed. Check stash_error_log.txt for details.');
-    } finally {
-      setIsProcessing(false);
-    }
+    );
   };
 
-  // WHISPER SUBTITLES & DAVINCI RESOLVE XML GENERATOR
-  const handleGenerateSubtitles = async () => {
+  const handleConvertVideo = () => {
     if (!filePath.trim()) return;
-    setIsProcessing(true);
-    setProgressPercent(15);
-    setActiveTask(`Transcribing Speech with Whisper AI (${whisperModel})...`);
-    setLiveLogText('Running local Whisper AI model on GPU...');
-    setErrorMessage('');
     setResultData(null);
+    startStream(
+      '/api/convert-video',
+      {
+        file_path: filePath.trim(),
+        container: videoContainer,
+        mode: videoMode,
+        cq_quality: cqQuality,
+        audio_codec: videoAudioCodec
+      },
+      videoMode === 'remux'
+        ? `Remuxing Video Container (.${videoContainer.toUpperCase()})...`
+        : `Converting Video for DaVinci Resolve (.${videoContainer.toUpperCase()})...`,
+      (data) => {
+        const resObj = {
+          type: 'video',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          message: data.message,
+          mode: data.mode,
+          outputFile: data.output_file,
+          videoUrl: data.web_url ? `${API_BASE}${data.web_url}` : null,
+          command: data.command_executed
+        };
+        setResultData(resObj);
+        saveToHistory(resObj);
+      }
+    );
+  };
 
-    try {
-      const res = await fetch(`${API_BASE}/api/generate-subtitles`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          file_path: filePath.trim(),
-          whisper_model: whisperModel,
-          language: subtitleLanguage
-        })
-      });
+  const handleConvertAudioFormat = () => {
+    if (!filePath.trim()) return;
+    setResultData(null);
+    startStream(
+      '/api/convert-audio',
+      {
+        file_path: filePath.trim(),
+        target_format: targetAudioFormat,
+        audio_bitrate: '320k'
+      },
+      `Converting Audio to .${targetAudioFormat.toUpperCase()}...`,
+      (data) => {
+        const resObj = {
+          type: 'audio_conversion',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          message: data.message,
+          outputFile: data.output_file,
+          webUrl: data.web_url ? `${API_BASE}${data.web_url}` : null,
+          command: data.command_executed
+        };
+        setResultData(resObj);
+        saveToHistory(resObj);
+      }
+    );
+  };
 
-      const data = await res.json();
-      if (!res.ok) {
-        setHasUnreadError(true);
-        setErrorMessage(data.detail || 'Subtitle generation failed. Check stash_error_log.txt for details.');
-      } else {
-        setProgressPercent(100);
+  const handleGenerateSubtitles = () => {
+    if (!filePath.trim()) return;
+    setResultData(null);
+    startStream(
+      '/api/generate-subtitles',
+      {
+        file_path: filePath.trim(),
+        whisper_model: whisperModel,
+        language: subtitleLanguage,
+        resolve_text_type: resolveTextType,
+        gen_srt: genSrt,
+        gen_vtt: genVtt,
+        gen_txt: genTxt,
+        gen_resolve_sub_xml: genResolveSubXml,
+        gen_resolve_timeline_xml: genResolveTimelineXml,
+        demucs_vocal_clean: demucsVocalClean
+      },
+      `Transcribing Speech with Whisper (${whisperModel})...`,
+      (data) => {
         const resObj = {
           type: 'subtitles',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -446,1186 +342,468 @@ export default function App() {
           txtUrl: data.txt_url ? `${API_BASE}${data.txt_url}` : null,
           xmlPath: data.xml_path,
           xmlUrl: data.xml_url ? `${API_BASE}${data.xml_url}` : null,
+          subXmlPath: data.sub_xml_path,
+          subXmlUrl: data.sub_xml_url ? `${API_BASE}${data.sub_xml_url}` : null,
+          resolveTextType: data.resolve_text_type,
           transcriptSummary: data.transcript_summary,
           detectedLanguage: data.detected_language
         };
         setResultData(resObj);
         saveToHistory(resObj);
       }
-    } catch (err) {
-      setHasUnreadError(true);
-      setErrorMessage('Subtitle generation failed. Check stash_error_log.txt for details.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleClearLogs = async () => {
-    try {
-      await fetch(`${API_BASE}/api/logs`, { method: 'DELETE' });
-      setLogContent('# DEMUXER STASH ERROR LOG\n# Log file cleared.');
-      setHasUnreadError(false);
-    } catch (err) {
-      console.error('Error clearing logs:', err);
-    }
-  };
-
-  const handleStopProcess = async () => {
-    try {
-      await fetch(`${API_BASE}/api/stop-process`, { method: 'POST' });
-      setIsProcessing(false);
-      setLiveLogText('Process terminated by user.');
-    } catch (err) {
-      console.error('Error stopping process:', err);
-    }
-  };
-
-  // Audio Playback Transport
-  const togglePlayAudio = () => {
-    if (!vocalsAudioRef.current && !bgAudioRef.current) return;
-    if (isPlaying) {
-      if (vocalsAudioRef.current) vocalsAudioRef.current.pause();
-      if (bgAudioRef.current) bgAudioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      if (vocalsAudioRef.current) vocalsAudioRef.current.play().catch(e => console.log(e));
-      if (bgAudioRef.current) bgAudioRef.current.play().catch(e => console.log(e));
-      setIsPlaying(true);
-    }
-  };
-
-  const handleSeek = (e) => {
-    const time = parseFloat(e.target.value);
-    setCurrentTime(time);
-    if (vocalsAudioRef.current) vocalsAudioRef.current.currentTime = time;
-    if (bgAudioRef.current) bgAudioRef.current.currentTime = time;
-  };
-
-  // Solo / Mute logic
-  const effectiveVocalsVol = soloTrack === 'bg' ? 0 : (vocalsMuted ? 0 : vocalsVolume);
-  const effectiveBgVol = soloTrack === 'vocals' ? 0 : (bgMuted ? 0 : bgVolume);
-
-  useEffect(() => {
-    if (vocalsAudioRef.current) vocalsAudioRef.current.volume = effectiveVocalsVol;
-  }, [effectiveVocalsVol]);
-
-  useEffect(() => {
-    if (bgAudioRef.current) bgAudioRef.current.volume = effectiveBgVol;
-  }, [effectiveBgVol]);
-
-  const openLogViewer = async () => {
-    setHasUnreadError(false); // Reset error notification badge on click
-    try {
-      const res = await fetch(`${API_BASE}/api/logs?t=${Date.now()}`);
-      const data = await res.json();
-      setLogContent(data.content || 'No log data');
-      setShowLogModal(true);
-    } catch (err) {
-      setLogContent('Failed to load stash_error_log.txt');
-      setShowLogModal(true);
-    }
-  };
-
-  const openFolder = async (pathStr) => {
-    if (!pathStr) return;
-    try {
-      await fetch(`${API_BASE}/api/open-folder`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder_path: pathStr })
-      });
-    } catch (err) {
-      console.error('Error opening folder:', err);
-    }
-  };
-
-  const formatSeconds = (sec) => {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    );
   };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1.5rem' }}>
-      
-      {/* HEADER BAR */}
-      <header style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: '2rem',
-        paddingBottom: '1.25rem',
-        borderBottom: '1px solid var(--border-color)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          <div style={{
-            background: 'linear-gradient(135deg, #8b5cf6, #06b6d4)',
-            padding: '0.75rem',
-            borderRadius: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            boxShadow: '0 0 24px rgba(139, 92, 246, 0.35)'
-          }}>
-            <Waves size={28} color="white" />
-          </div>
-          <div>
-            <h1 style={{ 
-              fontSize: '1.8rem', 
-              fontWeight: 800, 
-              letterSpacing: '-0.02em',
-              background: 'linear-gradient(to right, #ffffff, #9ca3af)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent'
-            }}>
-              DEMUXER <span style={{ fontSize: '0.9rem', color: 'var(--accent-purple)', fontWeight: 700 }}>PRO v4</span>
-            </h1>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              AI Stem Isolation • Whisper Subtitles • DaVinci Resolve Suite
-            </p>
-          </div>
-        </div>
-
-        {/* Status & Stash Logs Button */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div className="glass-card" style={{ padding: '0.45rem 0.9rem', borderRadius: '30px', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem' }}>
-            <span style={{ 
-              width: '8px', 
-              height: '8px', 
-              borderRadius: '50%', 
-              backgroundColor: serverHealth.online ? 'var(--accent-emerald)' : 'var(--accent-rose)',
-              boxShadow: serverHealth.online ? '0 0 8px var(--accent-emerald)' : '0 0 8px var(--accent-rose)'
-            }} />
-            <span style={{ fontWeight: 600, color: serverHealth.online ? 'var(--text-main)' : 'var(--text-muted)' }}>
-              Engine {serverHealth.online ? 'Online' : 'Offline'}
-            </span>
-          </div>
-
-          {serverHealth.cuda && (
-            <div className="glass-card" style={{ padding: '0.45rem 0.9rem', borderRadius: '30px', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
-              <Zap size={14} color="var(--accent-cyan)" />
-              <span style={{ fontWeight: 600, color: 'var(--accent-cyan)' }}>
-                {serverHealth.gpuDevice || 'NVIDIA GPU'}
-              </span>
-            </div>
-          )}
-
-          <div style={{ position: 'relative' }}>
-            <button 
-              onClick={openLogViewer}
-              className="btn btn-secondary"
-              style={{ fontSize: '0.8rem', padding: '0.45rem 0.9rem', borderRadius: '30px' }}
-            >
-              <Terminal size={14} />
-              <span>Stash Logs</span>
-            </button>
-
-            {hasUnreadError && (
-              <span style={{
-                position: 'absolute',
-                top: '-3px',
-                right: '-3px',
-                width: '12px',
-                height: '12px',
-                backgroundColor: 'var(--accent-rose)',
-                borderRadius: '50%',
-                boxShadow: '0 0 10px var(--accent-rose)',
-                border: '2px solid var(--bg-dark)',
-                animation: 'pulseGlow 1.5s infinite'
-              }} />
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* INPUT MEDIA FILE SELECTOR */}
-      <section className="glass-card" style={{ padding: '1.75rem', marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <FileSearch size={20} color="var(--accent-purple)" />
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Target Audio or Video File</h2>
-          </div>
-          {fileMetadata && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              {fileMetadata.exists ? (
-                <span style={{ 
-                  background: 'rgba(16, 185, 129, 0.15)', 
-                  color: 'var(--accent-emerald)', 
-                  border: '1px solid rgba(16, 185, 129, 0.3)',
-                  padding: '0.2rem 0.65rem', 
-                  borderRadius: '20px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem'
-                }}>
-                  <FileCheck size={12} /> {fileMetadata.extension.toUpperCase()} • {fileMetadata.size_mb} MB
-                </span>
-              ) : (
-                <span style={{ 
-                  background: 'rgba(244, 63, 94, 0.15)', 
-                  color: 'var(--accent-rose)', 
-                  border: '1px solid rgba(244, 63, 94, 0.3)',
-                  padding: '0.2rem 0.65rem', 
-                  borderRadius: '20px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600
-                }}>
-                  File Not Found
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem' }}>
-          <input 
-            type="text" 
-            className="glass-input" 
-            placeholder='Paste file path or click Browse (Supports MP3, WAV, FLAC, M4A, AAC, MP4, MKV, MOV, etc.)'
-            value={filePath}
-            onChange={(e) => setFilePath(e.target.value)}
-          />
-          <button 
-            onClick={handleBrowseFile}
-            className="btn btn-secondary"
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            <FolderOpen size={16} />
-            <span>Browse...</span>
-          </button>
-        </div>
-
-        {/* Custom Output Directory Row */}
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Output Directory:</span>
-          <input 
-            type="text" 
-            className="glass-input" 
-            style={{ fontSize: '0.82rem', padding: '0.5rem 0.85rem' }}
-            placeholder="Default: \separated, \subtitles, \converted, and \converted_audio"
-            value={customOutputDir}
-            onChange={(e) => setCustomOutputDir(e.target.value)}
-          />
-          <button 
-            onClick={handleBrowseFolder}
-            className="btn btn-secondary"
-            style={{ fontSize: '0.8rem', padding: '0.5rem 0.9rem', whiteSpace: 'nowrap' }}
-          >
-            <FolderOpen size={14} />
-            <span>Set Folder</span>
-          </button>
-        </div>
-      </section>
-
-      {/* FEATURE CARDS GRID */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-        
-        {/* FEATURE A: DEMUCS AI STEM SEPARATION */}
-        <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
-              <div style={{ 
-                width: '44px', 
-                height: '44px', 
-                borderRadius: '12px', 
-                background: 'rgba(139, 92, 246, 0.15)',
-                border: '1px solid rgba(139, 92, 246, 0.3)',
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center'
-              }}>
-                <Music size={24} color="var(--accent-purple)" />
-              </div>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-purple)', background: 'var(--accent-purple-glow)', padding: '0.25rem 0.6rem', borderRadius: '12px' }}>
-                AI STEM ISOLATION
-              </span>
-            </div>
-
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.4rem' }}>
-              AI Stem Isolation
-            </h3>
-            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: '1.5', marginBottom: '1.25rem' }}>
-              Extract pristine **Vocals** and **Background Instrumental** with zero artifacts.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem' }}>
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  AI Neural Model:
-                </label>
-                <select 
-                  className="glass-input"
-                  style={{ cursor: 'pointer' }}
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                >
-                  <option value="htdemucs_ft">✨ htdemucs_ft (Fine-Tuned - Highest Quality & Cleanest Background)</option>
-                  <option value="htdemucs">⚡ htdemucs (Standard Fast)</option>
-                  <option value="htdemucs_6s">🎹 htdemucs_6s (6-Stems: Vocals, Drums, Bass, Other, Piano, Guitar)</option>
-                  <option value="mdx_extra">🎛️ mdx_extra (MDX Architecture)</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                    Separation Target:
-                  </label>
-                  <select 
-                    className="glass-input"
-                    style={{ cursor: 'pointer' }}
-                    value={stemMode}
-                    onChange={(e) => setStemMode(e.target.value)}
-                  >
-                    <option value="vocals">🎤 Vocals + Background</option>
-                    <option value="drums">🥁 Drums + Accompaniment</option>
-                    <option value="bass">🎸 Bass + Accompaniment</option>
-                    <option value="all_4_stems">🎹 Full Band (4 Stems)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                    Quality Shifts Boost:
-                  </label>
-                  <select 
-                    className="glass-input"
-                    style={{ cursor: 'pointer' }}
-                    value={shiftsQuality}
-                    onChange={(e) => setShiftsQuality(Number(e.target.value))}
-                  >
-                    <option value={2}>2 Shifts (Clean Background)</option>
-                    <option value={1}>1 Shift (Fastest)</option>
-                    <option value={4}>4 Shifts (Ultra Clean)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                    Stem Format:
-                  </label>
-                  <select 
-                    className="glass-input"
-                    style={{ cursor: 'pointer' }}
-                    value={audioFormat}
-                    onChange={(e) => setAudioFormat(e.target.value)}
-                  >
-                    <option value="mp3">MP3 (Compressed)</option>
-                    <option value="wav">WAV (Lossless 16-bit)</option>
-                    <option value="flac">FLAC (Lossless Compressed)</option>
-                  </select>
-                </div>
-
-                {audioFormat === 'mp3' && (
-                  <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                      MP3 Bitrate:
-                    </label>
-                    <select 
-                      className="glass-input"
-                      style={{ cursor: 'pointer' }}
-                      value={mp3Bitrate}
-                      onChange={(e) => setMp3Bitrate(Number(e.target.value))}
-                    >
-                      <option value={320}>320 kbps (High)</option>
-                      <option value={256}>256 kbps</option>
-                      <option value={192}>192 kbps</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-
-            </div>
-          </div>
-
-          <button 
-            className="btn btn-purple" 
-            style={{ width: '100%' }}
-            disabled={!filePath.trim() || isProcessing || (fileMetadata && !fileMetadata.exists)}
-            onClick={handleSeparateAudio}
-          >
-            <Sparkles size={18} />
-            <span>Isolate Stems ({audioFormat.toUpperCase()})</span>
-          </button>
-        </div>
-
-        {/* FEATURE B: LOCAL WHISPER SUBTITLES & RESOLVE XML (NEW!) */}
-        <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
-              <div style={{ 
-                width: '44px', 
-                height: '44px', 
-                borderRadius: '12px', 
-                background: 'rgba(245, 158, 11, 0.15)',
-                border: '1px solid rgba(245, 158, 11, 0.3)',
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center'
-              }}>
-                <FileText size={24} color="var(--accent-amber)" />
-              </div>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-amber)', background: 'rgba(245, 158, 11, 0.2)', padding: '0.25rem 0.6rem', borderRadius: '12px' }}>
-                WHISPER AI • 100% FREE
-              </span>
-            </div>
-
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.4rem' }}>
-              Whisper Subtitles & XML
-            </h3>
-            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: '1.5', marginBottom: '1.25rem' }}>
-              Generate **`.SRT`**, **`.VTT`**, **`.TXT`**, and **DaVinci Resolve `.XML`** timeline files locally on GPU.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                    Whisper AI Model:
-                  </label>
-                  <select 
-                    className="glass-input"
-                    style={{ cursor: 'pointer' }}
-                    value={whisperModel}
-                    onChange={(e) => setWhisperModel(e.target.value)}
-                  >
-                    <option value="base">Whisper Base (Fast & Accurate)</option>
-                    <option value="small">Whisper Small (High Precision)</option>
-                    <option value="tiny">Whisper Tiny (Ultra-Fast)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                    Language:
-                  </label>
-                  <select 
-                    className="glass-input"
-                    style={{ cursor: 'pointer' }}
-                    value={subtitleLanguage}
-                    onChange={(e) => setSubtitleLanguage(e.target.value)}
-                  >
-                    <option value="auto">Auto-Detect</option>
-                    <option value="en">English</option>
-                    <option value="es">Spanish</option>
-                    <option value="fr">French</option>
-                    <option value="de">German</option>
-                    <option value="hi">Hindi</option>
-                    <option value="ja">Japanese</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <button 
-            className="btn btn-secondary" 
-            style={{ width: '100%', background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: 'white', border: 'none' }}
-            disabled={!filePath.trim() || isProcessing || (fileMetadata && !fileMetadata.exists)}
-            onClick={handleGenerateSubtitles}
-          >
-            <FileText size={18} />
-            <span>Generate Subtitles & Resolve XML</span>
-          </button>
-        </div>
-
-        {/* FEATURE C: UNIVERSAL AUDIO CONVERTER */}
-        <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
-              <div style={{ 
-                width: '44px', 
-                height: '44px', 
-                borderRadius: '12px', 
-                background: 'rgba(16, 185, 129, 0.15)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center'
-              }}>
-                <Disc size={24} color="var(--accent-emerald)" />
-              </div>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-emerald)', background: 'var(--accent-emerald-glow)', padding: '0.25rem 0.6rem', borderRadius: '12px' }}>
-                AUDIO CONVERTER
-              </span>
-            </div>
-
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.4rem' }}>
-              Universal Audio Converter
-            </h3>
-            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: '1.5', marginBottom: '1.25rem' }}>
-              Convert any audio or video file into your choice of audio format.
-            </p>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                Target Audio Format:
-              </label>
-              <select 
-                className="glass-input"
-                style={{ cursor: 'pointer' }}
-                value={targetAudioFormat}
-                onChange={(e) => setTargetAudioFormat(e.target.value)}
-              >
-                <option value="wav">WAV (Uncompressed PCM - Best Quality)</option>
-                <option value="mp3">MP3 320 kbps (Universal)</option>
-                <option value="flac">FLAC (Lossless Compressed)</option>
-                <option value="aac">AAC 320 kbps</option>
-                <option value="m4a">M4A (Apple Audio)</option>
-                <option value="ogg">OGG Vorbis</option>
-                <option value="aiff">AIFF (Pro Studio)</option>
-              </select>
-            </div>
-          </div>
-
-          <button 
-            className="btn btn-cyan" 
-            style={{ width: '100%', background: 'linear-gradient(135deg, #10b981 0%, #06b6d4 100%)' }}
-            disabled={!filePath.trim() || isProcessing || (fileMetadata && !fileMetadata.exists)}
-            onClick={handleConvertAudioFormat}
-          >
-            <Disc size={18} />
-            <span>Convert Audio to .{targetAudioFormat.toUpperCase()}</span>
-          </button>
-        </div>
-
-        {/* FEATURE D: DAVINCI RESOLVE CONVERTER */}
-        <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
-              <div style={{ 
-                width: '44px', 
-                height: '44px', 
-                borderRadius: '12px', 
-                background: 'rgba(6, 182, 212, 0.15)',
-                border: '1px solid rgba(6, 182, 212, 0.3)',
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center'
-              }}>
-                <Film size={24} color="var(--accent-cyan)" />
-              </div>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-cyan)', background: 'var(--accent-cyan-glow)', padding: '0.25rem 0.6rem', borderRadius: '12px' }}>
-                FFMPEG RESOLVE
-              </span>
-            </div>
-
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.4rem' }}>
-              Resolve Video Converter
-            </h3>
-            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: '1.5', marginBottom: '1.25rem' }}>
-              Lossless DaVinci Resolve format with GPU acceleration and CPU fallback.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                    Container:
-                  </label>
-                  <select 
-                    className="glass-input"
-                    style={{ cursor: 'pointer' }}
-                    value={videoContainer}
-                    onChange={(e) => setVideoContainer(e.target.value)}
-                  >
-                    <option value="mp4">.MP4 (Standard)</option>
-                    <option value="mov">.MOV (QuickTime)</option>
-                    <option value="mkv">.MKV (Matroska)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                    Quality:
-                  </label>
-                  <select 
-                    className="glass-input"
-                    style={{ cursor: 'pointer' }}
-                    value={cqQuality}
-                    onChange={(e) => setCqQuality(Number(e.target.value))}
-                  >
-                    <option value={18}>CRF 18 (Lossless)</option>
-                    <option value={14}>CRF 14 (Max)</option>
-                    <option value={22}>CRF 22 (Balanced)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '0.35rem' }}>
-                  Resolve Audio Track Codec:
-                </label>
-                <select 
-                  className="glass-input"
-                  style={{ cursor: 'pointer' }}
-                  value={videoAudioCodec}
-                  onChange={(e) => setVideoAudioCodec(e.target.value)}
-                >
-                  <option value="aac">AAC 320 kbps (High Quality)</option>
-                  <option value="pcm">PCM 16-bit Uncompressed WAV (Resolve Native)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <button 
-            className="btn btn-cyan" 
-            style={{ width: '100%' }}
-            disabled={!filePath.trim() || isProcessing || (fileMetadata && !fileMetadata.exists)}
-            onClick={handleConvertVideo}
-          >
-            <Film size={18} />
-            <span>Convert for Resolve (.{videoContainer.toUpperCase()})</span>
-          </button>
-        </div>
-
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white pb-16">
+      {/* Background Ambient Glow */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 -right-40 w-96 h-96 bg-purple-600/15 rounded-full blur-3xl" />
+        <div className="absolute -bottom-40 left-1/3 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl" />
       </div>
 
-      {/* REAL-TIME STREAMING PROGRESS BAR OVERLAY */}
-      {isProcessing && (
-        <section className="glass-card" style={{ 
-          padding: '2.25rem', 
-          marginBottom: '2rem',
-          border: '1px solid var(--border-highlight)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <RefreshCw size={22} color="var(--accent-purple)" className="animate-spin" />
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>{activeTask}</h3>
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+        {/* Navigation & Header */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 mb-8 border-b border-slate-800/80">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl shadow-xl shadow-indigo-500/20 text-white">
+              <Disc className="w-7 h-7 animate-spin-slow" />
             </div>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <button 
-                onClick={handleStopProcess}
-                className="btn btn-outline-danger"
-                style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
-              >
-                <Square size={13} style={{ fill: 'currentColor' }} />
-                <span>Stop Process</span>
-              </button>
-
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color: 'var(--accent-purple)' }}>
-                {progressPercent}%
-              </span>
+            <div>
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-white via-slate-200 to-indigo-300 bg-clip-text text-transparent">
+                Demuxer Pro AI Studio
+              </h1>
+              <p className="text-xs text-slate-400">High-Performance Neural Stem Separation & Media Toolkit v4.0</p>
             </div>
           </div>
 
-          {/* Glowing Animated Progress Bar */}
-          <div style={{
-            width: '100%',
-            height: '14px',
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            borderRadius: '10px',
-            overflow: 'hidden',
-            marginBottom: '1rem',
-            border: '1px solid rgba(255,255,255,0.08)',
-            position: 'relative'
-          }}>
-            <div style={{
-              width: `${Math.max(5, progressPercent)}%`,
-              height: '100%',
-              background: 'linear-gradient(90deg, #8b5cf6 0%, #06b6d4 100%)',
-              borderRadius: '10px',
-              transition: 'width 0.3s ease',
-              boxShadow: '0 0 15px rgba(139, 92, 246, 0.6)'
-            }} />
-          </div>
+          {/* Engine Status Badges */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 ${serverHealth.online ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}>
+              <span className={`w-2 h-2 rounded-full ${serverHealth.online ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+              <span>{serverHealth.online ? 'Backend Online' : 'Engine Offline'}</span>
+            </div>
 
-          {/* Clean Progress Status Phrasing */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            <span style={{ fontWeight: 600, color: 'var(--accent-purple)' }}>
-              {liveLogText || 'Processing media...'}
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', fontWeight: 600 }}>
-              Elapsed: {formatSeconds(elapsedTime)}
-            </span>
-          </div>
-        </section>
-      )}
-
-      {/* ERROR ALERT NOTIFICATION */}
-      {errorMessage && (
-        <section className="glass-card" style={{ 
-          padding: '1.5rem', 
-          marginBottom: '2rem', 
-          background: 'rgba(244, 63, 94, 0.1)', 
-          border: '1px solid rgba(244, 63, 94, 0.35)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', gap: '0.85rem' }}>
-              <AlertCircle size={24} color="var(--accent-rose)" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <h4 style={{ color: 'var(--accent-rose)', fontWeight: 700, fontSize: '1.05rem', marginBottom: '0.3rem' }}>
-                  Execution Failed
-                </h4>
-                <p style={{ color: 'var(--text-main)', fontSize: '0.9rem', marginBottom: '0.8rem' }}>
-                  {errorMessage}
-                </p>
-                <button 
-                  onClick={openLogViewer}
-                  className="btn btn-outline-danger"
-                  style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
-                >
-                  <Terminal size={14} />
-                  <span>Inspect stash_error_log.txt</span>
-                </button>
+            {serverHealth.cuda && (
+              <div className="px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 rounded-xl text-xs font-medium flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                <span>GPU: {serverHealth.gpuDevice || 'NVIDIA CUDA'}</span>
               </div>
-            </div>
-            <button 
-              onClick={() => setErrorMessage('')} 
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+            )}
+
+            <button
+              onClick={handleOpenLogModal}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition ${hasUnreadError ? 'bg-rose-500/20 border-rose-500/40 text-rose-300 animate-pulse' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
             >
-              <X size={18} />
+              <Terminal className="w-3.5 h-3.5" />
+              <span>Logs</span>
+              {hasUnreadError && <span className="w-2 h-2 rounded-full bg-rose-500" />}
             </button>
           </div>
-        </section>
-      )}
+        </header>
 
-      {/* SUBTITLES RESULT CARD */}
-      {resultData && resultData.type === 'subtitles' && (
-        <section className="glass-card" style={{ 
-          padding: '1.75rem', 
-          marginBottom: '2rem',
-          background: 'rgba(245, 158, 11, 0.08)',
-          border: '1px solid rgba(245, 158, 11, 0.3)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <CheckCircle2 size={24} color="var(--accent-amber)" />
-              <div>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--accent-amber)' }}>
-                  Whisper Subtitles & Resolve XML Generated!
-                </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  Language: <strong style={{ color: 'var(--text-main)' }}>{resultData.detectedLanguage?.toUpperCase()}</strong> • 100% Free & Local
-                </p>
-              </div>
+        {/* Global Error Banner */}
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center justify-between text-rose-300 text-sm animate-fade-in">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <span>{errorMessage}</span>
             </div>
-
-            <button 
-              onClick={() => openFolder(resultData.outputDir)}
-              className="btn btn-secondary"
-              style={{ fontSize: '0.85rem' }}
+            <button
+              onClick={() => setErrorMessage('')}
+              className="text-xs bg-rose-500/20 hover:bg-rose-500/30 px-3 py-1 rounded-lg transition"
             >
-              <FolderOpen size={16} />
-              <span>Open Output Folder</span>
+              Dismiss
             </button>
           </div>
+        )}
 
-          {/* Action Download Buttons Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {resultData.srtPath && (
-              <button onClick={() => openFolder(resultData.srtPath)} className="btn btn-secondary" style={{ fontSize: '0.8rem', justifyContent: 'flex-start' }}>
-                <FileText size={16} color="var(--accent-amber)" />
-                <span>Open .SRT Subtitles</span>
-              </button>
-            )}
-            {resultData.vttPath && (
-              <button onClick={() => openFolder(resultData.vttPath)} className="btn btn-secondary" style={{ fontSize: '0.8rem', justifyContent: 'flex-start' }}>
-                <MessageSquare size={16} color="var(--accent-cyan)" />
-                <span>Open .VTT Web Subtitles</span>
-              </button>
-            )}
-            {resultData.xmlPath && (
-              <button onClick={() => openFolder(resultData.xmlPath)} className="btn btn-secondary" style={{ fontSize: '0.8rem', justifyContent: 'flex-start' }}>
-                <FileSpreadsheet size={16} color="var(--accent-purple)" />
-                <span>Open Resolve .XML Timeline</span>
-              </button>
-            )}
-          </div>
+        {/* Media File Picker & Output Location */}
+        <FilePicker
+          filePath={filePath}
+          setFilePath={setFilePath}
+          customOutputDir={customOutputDir}
+          setCustomOutputDir={setCustomOutputDir}
+          fileMetadata={fileMetadata}
+          onBrowseFile={handleBrowseFile}
+          onBrowseFolder={handleBrowseFolder}
+        />
 
-          {/* Live Transcript Preview Box */}
-          {resultData.transcriptSummary && (
-            <div style={{ 
-              background: 'rgba(0,0,0,0.4)', 
-              padding: '1rem', 
-              borderRadius: '10px', 
-              fontSize: '0.85rem',
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--text-main)',
-              maxHeight: '160px',
-              overflowY: 'auto',
-              border: '1px solid rgba(255,255,255,0.06)'
-            }}>
-              <p style={{ fontSize: '0.75rem', color: 'var(--accent-amber)', marginBottom: '0.4rem', fontWeight: 600 }}>
-                TRANSCRIPT PREVIEW:
-              </p>
-              <pre style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
-                {resultData.transcriptSummary}
-              </pre>
-            </div>
-          )}
-        </section>
-      )}
+        {/* SSE Stream Progress Bar */}
+        <ProgressBar
+          isProcessing={isProcessing}
+          activeTask={activeTask}
+          progressPercent={progressPercent}
+          liveLogText={liveLogText}
+          onStop={stopStream}
+        />
 
-      {/* DUAL STEM AUDIO MIXER & PLAYER */}
-      {resultData && resultData.type === 'audio' && (resultData.primaryStemUrl || resultData.bgStemUrl) && (
-        <section className="glass-card" style={{ padding: '1.75rem', marginBottom: '2rem', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <Sliders size={22} color="var(--accent-purple)" />
-              <div>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }}>Synchronized Stem Audio Mixer</h3>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Model: <span style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>{resultData.modelUsed || 'htdemucs_ft'}</span>
-                </p>
+        {/* Active Result Card */}
+        <ResultCard
+          resultData={resultData}
+          onOpenFolder={handleOpenFolder}
+        />
+
+        {/* Synchronized Stem Mixer */}
+        {resultData && resultData.type === 'audio' && (
+          <StemMixer
+            primaryStemUrl={resultData.primaryStemUrl}
+            bgStemUrl={resultData.bgStemUrl}
+            title={`Stem Mixer (${resultData.modelUsed || 'Demucs'})`}
+          />
+        )}
+
+        {/* Feature Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+          {/* Feature A: Audio Separation */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col justify-between backdrop-blur-xl">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-400">
+                  <Waves className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-100">AI Stem Separation (Demucs)</h3>
+                  <p className="text-xs text-slate-400">Isolate vocals, drums, bass, or instrumental backing tracks</p>
+                </div>
               </div>
-            </div>
 
-            <button 
-              onClick={() => openFolder(resultData.outputDir)}
-              className="btn btn-secondary"
-              style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
-            >
-              <FolderOpen size={14} /> Open Output Folder
-            </button>
-          </div>
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Model Architecture</label>
+                  <select
+                    value={modelName}
+                    onChange={(e) => setModelName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="htdemucs_ft">htdemucs_ft (Fine-Tuned — Highest Studio Quality)</option>
+                    <option value="htdemucs">htdemucs (Fast Hybrid Transformer)</option>
+                    <option value="htdemucs_6s">htdemucs_6s (6-Stem: Vocals, Drums, Bass, Guitar, Piano, Other)</option>
+                    <option value="mdx_extra">mdx_extra (MDX Neural Network Engine)</option>
+                  </select>
+                </div>
 
-          {/* Hidden HTML5 Audio elements */}
-          {resultData.primaryStemUrl && (
-            <audio 
-              ref={vocalsAudioRef} 
-              src={resultData.primaryStemUrl} 
-              onTimeUpdate={() => {
-                if (vocalsAudioRef.current) {
-                  setCurrentTime(vocalsAudioRef.current.currentTime);
-                  setDuration(vocalsAudioRef.current.duration || 0);
-                }
-              }}
-              onEnded={() => setIsPlaying(false)}
-            />
-          )}
-          {resultData.bgStemUrl && (
-            <audio ref={bgAudioRef} src={resultData.bgStemUrl} />
-          )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Isolation Target</label>
+                    <select
+                      value={stemMode}
+                      onChange={(e) => setStemMode(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="vocals">Vocals vs Accompaniment</option>
+                      <option value="drums">Drums vs Background</option>
+                      <option value="bass">Bass vs Background</option>
+                      <option value="all_4_stems">Full Stems (Vocals, Drums, Bass, Other)</option>
+                    </select>
+                  </div>
 
-          {/* Master Transport Controls */}
-          <div style={{ 
-            background: 'rgba(0,0,0,0.4)', 
-            padding: '1.2rem', 
-            borderRadius: '14px', 
-            marginBottom: '1.25rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.85rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <button 
-                onClick={togglePlayAudio}
-                className="btn btn-purple"
-                style={{ borderRadius: '50%', width: '48px', height: '48px', padding: 0 }}
-              >
-                {isPlaying ? <Pause size={22} /> : <Play size={22} style={{ marginLeft: '3px' }} />}
-              </button>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Output Format</label>
+                    <select
+                      value={audioFormat}
+                      onChange={(e) => setAudioFormat(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="mp3">MP3 Audio (320kbps)</option>
+                      <option value="wav">WAV Audio (Lossless PCM)</option>
+                      <option value="flac">FLAC Audio (Compressed Lossless)</option>
+                    </select>
+                  </div>
+                </div>
 
-              <div style={{ flexGrow: 1 }}>
-                <input 
-                  type="range"
-                  min="0"
-                  max={duration || 100}
-                  step="0.1"
-                  value={currentTime}
-                  onChange={handleSeek}
-                  style={{ width: '100%', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '0.3rem' }}>
-                  <span>{formatSeconds(currentTime)}</span>
-                  <span>{formatSeconds(duration)}</span>
+                <div>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Quality Shift Iterations</label>
+                    <span className="text-xs font-mono text-indigo-400 font-bold">{shiftsQuality} {shiftsQuality === 1 ? 'Shift (Fast)' : 'Shifts (Cleaner)'}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="5"
+                    value={shiftsQuality}
+                    onChange={(e) => setShiftsQuality(parseInt(e.target.value))}
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  />
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Stem Faders Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-            
-            {/* VOCALS STEM FADER */}
-            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--accent-purple)' }}>🎤 Vocals Stem</span>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <button 
-                    onClick={() => setSoloTrack(soloTrack === 'vocals' ? null : 'vocals')}
-                    style={{
-                      background: soloTrack === 'vocals' ? 'var(--accent-purple)' : 'rgba(255,255,255,0.1)',
-                      color: soloTrack === 'vocals' ? 'white' : 'var(--text-muted)',
-                      border: 'none', borderRadius: '4px', padding: '0.15rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer'
-                    }}
-                  >
-                    SOLO
-                  </button>
-                  <button 
-                    onClick={() => setVocalsMuted(!vocalsMuted)}
-                    style={{
-                      background: vocalsMuted ? 'var(--accent-rose)' : 'rgba(255,255,255,0.1)',
-                      color: vocalsMuted ? 'white' : 'var(--text-muted)',
-                      border: 'none', borderRadius: '4px', padding: '0.15rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer'
-                    }}
-                  >
-                    MUTE
-                  </button>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Volume2 size={16} color="var(--text-muted)" />
-                <input 
-                  type="range" min="0" max="1" step="0.01" 
-                  value={vocalsVolume} 
-                  onChange={(e) => setVocalsVolume(parseFloat(e.target.value))}
-                  style={{ width: '100%', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
-                />
-                <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', minWidth: '35px' }}>
-                  {Math.round(vocalsVolume * 100)}%
-                </span>
-              </div>
-            </div>
-
-            {/* BACKGROUND / INSTRUMENTAL STEM FADER */}
-            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--accent-cyan)' }}>🎸 Background Instrumental Stem</span>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <button 
-                    onClick={() => setSoloTrack(soloTrack === 'bg' ? null : 'bg')}
-                    style={{
-                      background: soloTrack === 'bg' ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.1)',
-                      color: soloTrack === 'bg' ? 'white' : 'var(--text-muted)',
-                      border: 'none', borderRadius: '4px', padding: '0.15rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer'
-                    }}
-                  >
-                    SOLO
-                  </button>
-                  <button 
-                    onClick={() => setBgMuted(!bgMuted)}
-                    style={{
-                      background: bgMuted ? 'var(--accent-rose)' : 'rgba(255,255,255,0.1)',
-                      color: bgMuted ? 'white' : 'var(--text-muted)',
-                      border: 'none', borderRadius: '4px', padding: '0.15rem 0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer'
-                    }}
-                  >
-                    MUTE
-                  </button>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Volume2 size={16} color="var(--text-muted)" />
-                <input 
-                  type="range" min="0" max="1" step="0.01" 
-                  value={bgVolume} 
-                  onChange={(e) => setBgVolume(parseFloat(e.target.value))}
-                  style={{ width: '100%', accentColor: 'var(--accent-cyan)', cursor: 'pointer' }}
-                />
-                <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', minWidth: '35px' }}>
-                  {Math.round(bgVolume * 100)}%
-                </span>
-              </div>
-            </div>
-
-          </div>
-        </section>
-      )}
-
-      {/* OTHER RESULT CARD */}
-      {resultData && resultData.type !== 'audio' && resultData.type !== 'subtitles' && (
-        <section className="glass-card" style={{ 
-          padding: '1.75rem', 
-          marginBottom: '2rem',
-          background: 'rgba(16, 185, 129, 0.08)',
-          border: '1px solid rgba(16, 185, 129, 0.3)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <CheckCircle2 size={24} color="var(--accent-emerald)" />
-              <div>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--accent-emerald)' }}>
-                  Processing Completed!
-                </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  {resultData.message}
-                </p>
-              </div>
-            </div>
-
-            <button 
-              onClick={() => openFolder(resultData.outputFile)}
-              className="btn btn-secondary"
-              style={{ fontSize: '0.85rem' }}
+            <button
+              onClick={handleSeparateAudio}
+              disabled={isProcessing || !filePath.trim() || (fileMetadata && !fileMetadata.exists)}
+              className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-medium text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <FolderOpen size={16} />
-              <span>Open Output Folder</span>
+              <Waves className="w-4 h-4" />
+              <span>Separate Audio Stems</span>
             </button>
           </div>
 
-          <div style={{ 
-            background: 'rgba(0,0,0,0.3)', 
-            padding: '1rem', 
-            borderRadius: '10px', 
-            fontSize: '0.85rem',
-            fontFamily: 'var(--font-mono)',
-            border: '1px solid rgba(255,255,255,0.06)'
-          }}>
-            <p style={{ color: 'var(--accent-emerald)', marginBottom: '0.4rem', fontWeight: 600 }}>
-              Output File Location:
-            </p>
-            <p style={{ color: 'var(--text-main)', wordBreak: 'break-all' }}>
-              {resultData.outputFile}
-            </p>
-          </div>
-        </section>
-      )}
+          {/* Feature B: Video Conversion */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col justify-between backdrop-blur-xl">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-400">
+                  <Film className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-100">DaVinci Resolve Video Encoder</h3>
+                  <p className="text-xs text-slate-400">Convert videos for zero-glitch editing import (GPU NVENC + CPU)</p>
+                </div>
+              </div>
 
-      {/* RECENT JOBS HISTORY */}
-      {jobHistory.length > 0 && (
-        <section className="glass-card" style={{ padding: '1.5rem', marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-            <History size={18} color="var(--text-muted)" />
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-muted)' }}>Recent Jobs History</h3>
-          </div>
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Processing Strategy</label>
+                  <select
+                    value={videoMode}
+                    onChange={(e) => setVideoMode(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-purple-500 font-medium"
+                  >
+                    <option value="transcode">🎬 Resolve 8-bit Transcode (libx264 CRF 18) — [Recommended]</option>
+                    <option value="remux">⚡ Direct Stream Copy (-c copy) — Instant (8-bit files only)</option>
+                    <option value="gpu_nvenc">🚀 GPU Acceleration (NVENC H.264 8-bit)</option>
+                  </select>
+                </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {jobHistory.map((item, idx) => (
-              <div key={idx} style={{ 
-                background: 'rgba(0,0,0,0.25)', 
-                padding: '0.75rem 1rem', 
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                fontSize: '0.82rem'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  {item.type === 'audio' ? <Music size={16} color="var(--accent-purple)" /> : item.type === 'subtitles' ? <FileText size={16} color="var(--accent-amber)" /> : item.type === 'audio_conversion' ? <Disc size={16} color="var(--accent-emerald)" /> : <Film size={16} color="var(--accent-cyan)" />}
-                  <span style={{ fontWeight: 600 }}>
-                    {item.type === 'audio' ? `Stems (${item.modelUsed || 'Demucs'})` : item.type === 'subtitles' ? 'Whisper Subtitles' : item.type === 'audio_conversion' ? 'Audio Conversion' : 'Resolve Video'}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Container Format</label>
+                    <select
+                      value={videoContainer}
+                      onChange={(e) => setVideoContainer(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="mp4">MP4 Video (.mp4)</option>
+                      <option value="mov">QuickTime (.mov)</option>
+                      <option value="mkv">Matroska (.mkv)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Audio Track Codec</label>
+                    <select
+                      value={videoAudioCodec}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setVideoAudioCodec(val);
+                        if (val === 'pcm' && videoContainer === 'mp4') {
+                          setVideoContainer('mov');
+                        }
+                      }}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="aac">AAC Audio (320kbps — Universal)</option>
+                      <option value="pcm">PCM Uncompressed (24-bit Studio Lossless)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {videoMode !== 'remux' ? (
+                  <div>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Constant Rate Factor (CRF / CQ)</label>
+                      <span className="text-xs font-mono text-purple-400 font-bold">CRF {cqQuality} ({cqQuality <= 16 ? 'Near Lossless' : cqQuality <= 19 ? 'Visually Lossless (~7GB)' : 'Compact'})</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="14"
+                      max="28"
+                      value={cqQuality}
+                      onChange={(e) => setCqQuality(parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                    />
+                  </div>
+                ) : null}
+
+                <div className="p-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl text-[11px] text-purple-300 flex items-start gap-2">
+                  <span className="text-sm leading-none">💡</span>
+                  <span>
+                    {videoMode === 'transcode' ? (
+                      <><strong>Resolve Free Guaranteed Compatibility:</strong> Transcodes to 8-bit H.264 (<code>-pix_fmt yuv420p</code>) with visually lossless CRF 18 and 320k AAC audio. Guarantees video appears on the timeline without missing video or audio traps.</>
+                    ) : videoMode === 'remux' ? (
+                      videoAudioCodec === 'pcm' && videoContainer === 'mov' ? (
+                        <><strong>Zero-Loss Studio Preset:</strong> Video copied 1:1 bit-for-bit into QuickTime (.mov) with 24-bit uncompressed PCM audio.</>
+                      ) : (
+                        <><strong>Remuxing active:</strong> Bypasses video re-encoding entirely (-c copy). Note: only works in Resolve Free if your source video is already 8-bit.</>
+                      )
+                    ) : (
+                      <><strong>GPU NVENC active:</strong> Fast 8-bit H.264 hardware encoding using your NVIDIA GPU.</>
+                    )}
                   </span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({item.timestamp})</span>
                 </div>
-                <button 
-                  onClick={() => openFolder(item.outputDir || item.outputFile)}
-                  style={{ background: 'none', border: 'none', color: 'var(--accent-purple)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem' }}
-                >
-                  <FolderOpen size={13} /> Open
-                </button>
               </div>
-            ))}
+            </div>
+
+            <button
+              onClick={handleConvertVideo}
+              disabled={isProcessing || !filePath.trim() || (fileMetadata && !fileMetadata.exists)}
+              className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-purple-600/20 transition active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Film className="w-4 h-4" />
+              <span>Convert Video for Resolve</span>
+            </button>
           </div>
-        </section>
-      )}
 
-      {/* RAW STASH LOG VIEWER MODAL */}
-      {showLogModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0, 0, 0, 0.8)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '1.5rem'
-        }}>
-          <div className="glass-card" style={{
-            width: '100%',
-            maxWidth: '850px',
-            maxHeight: '85vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            border: '1px solid var(--border-color)'
-          }}>
-            <div style={{
-              padding: '1.25rem 1.5rem',
-              borderBottom: '1px solid var(--border-color)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <Terminal size={20} color="var(--accent-rose)" />
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>stash_error_log.txt Viewer</h3>
-              </div>
-              <button 
-                onClick={() => setShowLogModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{
-              padding: '1.25rem',
-              overflowY: 'auto',
-              flexGrow: 1,
-              background: '#07080c'
-            }}>
-              <pre style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.82rem',
-                color: '#e5e7eb',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-                lineHeight: '1.6'
-              }}>
-                {logContent}
-              </pre>
-            </div>
-
-            <div style={{
-              padding: '1rem 1.5rem',
-              borderTop: '1px solid var(--border-top)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-                <button 
-                  onClick={handleClearLogs}
-                  className="btn btn-outline-danger" 
-                  style={{ fontSize: '0.85rem', padding: '0.45rem 0.85rem' }}
-                >
-                  <Trash2 size={14} /> Clear Logs
-                </button>
-                <button 
-                  onClick={handleCopyLogs}
-                  className="btn btn-secondary" 
-                  style={{ 
-                    fontSize: '0.85rem', 
-                    padding: '0.45rem 0.85rem',
-                    color: isCopied ? 'var(--accent-emerald)' : 'inherit',
-                    borderColor: isCopied ? 'var(--accent-emerald)' : undefined
-                  }}
-                >
-                  {isCopied ? <Check size={14} color="var(--accent-emerald)" /> : <Copy size={14} />}
-                  <span>{isCopied ? 'Copied!' : 'Copy Logs'}</span>
-                </button>
+          {/* Feature C: Universal Audio Converter */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col justify-between backdrop-blur-xl">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400">
+                  <Music className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-100">Universal Audio Converter</h3>
+                  <p className="text-xs text-slate-400">Convert any audio format with FFmpeg progress streaming</p>
+                </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <button 
-                  onClick={openLogViewer} 
-                  className="btn btn-secondary" 
-                  style={{ fontSize: '0.85rem' }}
+              <div className="mb-6">
+                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Target Audio Format</label>
+                <select
+                  value={targetAudioFormat}
+                  onChange={(e) => setTargetAudioFormat(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                 >
-                  <RefreshCw size={14} /> Refresh Logs
-                </button>
-                <button 
-                  onClick={() => setShowLogModal(false)} 
-                  className="btn btn-purple" 
-                  style={{ fontSize: '0.85rem' }}
-                >
-                  Close
-                </button>
+                  <option value="mp3">MP3 (Universal 320kbps)</option>
+                  <option value="wav">WAV (PCM 16-bit Lossless)</option>
+                  <option value="flac">FLAC (Free Lossless Codec)</option>
+                  <option value="aac">AAC (Advanced Audio Coding)</option>
+                  <option value="ogg">OGG (Vorbis Audio)</option>
+                  <option value="m4a">M4A (Apple Audio)</option>
+                  <option value="aiff">AIFF (Audio Interchange)</option>
+                </select>
               </div>
             </div>
+
+            <button
+              onClick={handleConvertAudioFormat}
+              disabled={isProcessing || !filePath.trim() || (fileMetadata && !fileMetadata.exists)}
+              className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Music className="w-4 h-4" />
+              <span>Convert Audio Format</span>
+            </button>
+          </div>
+
+          {/* Feature D: OpenAI Whisper Subtitles */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col justify-between backdrop-blur-xl">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-100">OpenAI Whisper AI Subtitles</h3>
+                  <p className="text-xs text-slate-400">Speech-to-Text transcription with DaVinci Resolve XML export</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Whisper Model</label>
+                    <select
+                      value={whisperModel}
+                      onChange={(e) => setWhisperModel(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 font-medium"
+                    >
+                      <option value="large-v3">Large-v3 (Maximum Studio Quality — Recommended)</option>
+                      <option value="turbo">Turbo (Accelerated v3)</option>
+                      <option value="medium">Medium (High Accuracy)</option>
+                      <option value="small">Small (Standard Accuracy)</option>
+                      <option value="base">Base (Balanced Draft)</option>
+                      <option value="tiny">Tiny (Fastest / Low VRAM)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">Language</label>
+                    <select
+                      value={subtitleLanguage}
+                      onChange={(e) => setSubtitleLanguage(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                    >
+                      <option value="auto">Auto Detect Language</option>
+                      <option value="en">English</option>
+                      <option value="es">Spanish</option>
+                      <option value="fr">French</option>
+                      <option value="de">German</option>
+                      <option value="ja">Japanese</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Pre-Processing Demucs Vocal Clean Checkbox */}
+                <div className="p-3 bg-slate-950/80 border border-amber-500/20 rounded-xl">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={demucsVocalClean}
+                      onChange={(e) => setDemucsVocalClean(e.target.checked)}
+                      className="mt-0.5 rounded accent-amber-500 shrink-0"
+                    />
+                    <div>
+                      <span className="text-xs font-semibold text-amber-300 flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        Demucs Vocal Audio Clean (Recommended for Movies / Trailers)
+                      </span>
+                      <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
+                        Isolates speech & strips 100% of background music, explosions, and sound effects before transcription for maximum accuracy.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={genSrt} onChange={(e) => setGenSrt(e.target.checked)} className="rounded accent-amber-500" />
+                    <span>Generate .SRT</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={genVtt} onChange={(e) => setGenVtt(e.target.checked)} className="rounded accent-amber-500" />
+                    <span>Generate .VTT</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={genTxt} onChange={(e) => setGenTxt(e.target.checked)} className="rounded accent-amber-500" />
+                    <span>Generate .TXT</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={genResolveSubXml} onChange={(e) => setGenResolveSubXml(e.target.checked)} className="rounded accent-amber-500" />
+                    <span>Resolve Subtitle XML</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleGenerateSubtitles}
+              disabled={isProcessing || !filePath.trim() || (fileMetadata && !fileMetadata.exists)}
+              className="w-full py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-medium text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-amber-600/20 transition active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Transcribe & Generate Subtitles</span>
+            </button>
           </div>
         </div>
-      )}
 
+        {/* History Drawer */}
+        <HistoryList
+          jobHistory={jobHistory}
+          onSelectHistory={(item) => setResultData(item)}
+          onClearHistory={handleClearHistory}
+        />
+
+        {/* Log Viewer Modal */}
+        {showLogModal && (
+          <LogModal
+            logContent={logContent}
+            onClose={() => setShowLogModal(false)}
+            onClearLogs={handleClearLogs}
+          />
+        )}
+      </div>
     </div>
   );
 }

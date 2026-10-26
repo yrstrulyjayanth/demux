@@ -5,3 +5,5 @@ python-multipart>=0.0.6
 torch>=2.5.0
 torchaudio>=2.5.0
 demucs>=4.0.0
+faster-whisper>=1.0.0
+openai-whisper>=20231117

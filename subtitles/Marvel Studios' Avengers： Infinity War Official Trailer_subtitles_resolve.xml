@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.8">
+    <resources>
+        <format id="r1" name="FFVideoFormat1080p30" frameDuration="100/3000s" width="1920" height="1080"/>
+        <effect id="e1" name="Basic Title" uid=".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.localized"/>
+    </resources>
+    <library>
+        <event name="Marvel Studios' Avengers： Infinity War Official Trailer_Subtitles">
+            <project name="Marvel Studios' Avengers： Infinity War Official Trailer_Subtitles_Timeline">
+                <sequence duration="3028/30s" format="r1">
+                    <spine>
+                        <gap offset="0s" duration="3028/30s" name="Gap">
+                        <title ref="e1" lane="1" offset="114/30s" duration="56/30s" name="Subtitle 1">
+                            <text>
+                                <text-style ref="ts1">There was an idea to</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="254/30s" duration="85/30s" name="Subtitle 2">
+                            <text>
+                                <text-style ref="ts1">bring together a group of remarkable people.</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="421/30s" duration="89/30s" name="Subtitle 3">
+                            <text>
+                                <text-style ref="ts1">see if we could become something more.</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="628/30s" duration="114/30s" name="Subtitle 4">
+                            <text>
+                                <text-style ref="ts1">it was us, we could fight the battles. But</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="823/30s" duration="43/30s" name="Subtitle 5">
+                            <text>
+                                <text-style ref="ts1">they never could. Feel</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="1551/30s" duration="65/30s" name="Subtitle 6">
+                            <text>
+                                <text-style ref="ts1">so desperately that you're right,</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="1616/30s" duration="66/30s" name="Subtitle 7">
+                            <text>
+                                <text-style ref="ts1">yet to fail all the same.</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="1837/30s" duration="45/30s" name="Subtitle 8">
+                            <text>
+                                <text-style ref="ts1">Dread it, run</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="1945/30s" duration="98/30s" name="Subtitle 9">
+                            <text>
+                                <text-style ref="ts1">from it. Destiny still arrives.</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="2320/30s" duration="36/30s" name="Subtitle 10">
+                            <text>
+                                <text-style ref="ts1">Evacuate the city.</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="2400/30s" duration="106/30s" name="Subtitle 11">
+                            <text>
+                                <text-style ref="ts1">Engage all defenses. And</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="2506/30s" duration="63/30s" name="Subtitle 12">
+                            <text>
+                                <text-style ref="ts1">get this man a shield. It</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        <title ref="e1" lane="1" offset="2945/30s" duration="84/30s" name="Subtitle 13">
+                            <text>
+                                <text-style ref="ts1">isn't something one considers when balancing the universe.</text-style>
+                            </text>
+                            <text-style-def id="ts1">
+                                <text-style font="Arial" fontSize="42" fontColor="1 1 1 1" bold="1" alignment="center"/>
+                            </text-style-def>
+                        </title>
+                        </gap>
+                    </spine>
+                </sequence>
+            </project>
+        </event>
+    </library>
+</fcpxml>
